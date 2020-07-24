@@ -34,7 +34,17 @@ pub fn block_on<F: Future>(future: F) -> F::Output {
     })
 }
 
-type JoinHandle<R> = Pin<Box<dyn Future<Output = R> + Send>>;
+pub struct JoinHandle<R>(async_task::JoinHandle<R, ()>);
+impl<R> Future for JoinHandle<R> {
+    type Output = R;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match Pin::new(&mut self.0).poll(cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(output) => Poll::Ready(output.expect("task failed")),
+        }
+    }
+}
 
 pub fn spawn<F, R>(future: F) -> JoinHandle<R>
 where
@@ -45,7 +55,7 @@ where
 
     task.schedule();
 
-    Box::pin(async { handle.await.unwrap() })
+    JoinHandle(handle)
 }
 
 type Task = async_task::Task<()>;
