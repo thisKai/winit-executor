@@ -1,4 +1,8 @@
-use {executor::{block_on, spawn}, futures_timer::Delay, std::time::Duration};
+use {
+    futures_timer::Delay,
+    std::time::Duration,
+    winit_executor::{block_on, spawn},
+};
 
 fn main() {
     block_on(async {

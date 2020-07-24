@@ -1,5 +1,4 @@
 use {
-    executor::{EventLoop},
     futures_timer::Delay,
     std::time::Duration,
     winit::{
@@ -7,6 +6,7 @@ use {
         event_loop::ControlFlow,
         window::WindowBuilder,
     },
+    winit_executor::EventLoop,
 };
 
 pub fn main() {
@@ -23,7 +23,7 @@ pub fn main() {
             *control_flow = ControlFlow::Exit;
         }
         Event::WindowEvent {
-            event: WindowEvent::CursorEntered {..},
+            event: WindowEvent::CursorEntered { .. },
             ..
         } => {
             target.spawn(async {
