@@ -58,28 +58,52 @@ where
     F: Future<Output = R> + Send + 'static,
     R: Send + 'static,
 {
-    let future = AssertUnwindSafe(future).catch_unwind();
-
-    let (task, handle) = async_task::spawn(future, |t| QUEUE.send(t).unwrap(), ());
-
-    task.schedule();
-
-    JoinHandle(handle)
+    RUNTIME.spawn(future)
 }
 
 type Task = async_task::Task<()>;
 
-static QUEUE: Lazy<channel::Sender<Task>> = Lazy::new(|| {
-    let (sender, receiver) = channel::unbounded::<Task>();
-
-    for _ in 0..num_cpus::get().max(1) {
-        let receiver = receiver.clone();
-        thread::spawn(move || {
-            for task in receiver.iter() {
-                task.run();
-            }
-        });
-    }
-
-    sender
+static RUNTIME: Lazy<Runtime> = Lazy::new(|| {
+    let runtime = Runtime::new();
+    runtime.start_threaded();
+    runtime
 });
+
+pub struct Runtime {
+    queue: channel::Sender<Task>,
+    stream: channel::Receiver<Task>,
+}
+impl Runtime {
+    pub fn new() -> Self {
+        let (sender, receiver) = channel::unbounded::<Task>();
+
+        Runtime {
+            queue: sender,
+            stream: receiver,
+        }
+    }
+    pub fn start_threaded(&self) {
+        for _ in 0..num_cpus::get().max(1) {
+            let receiver = self.stream.clone();
+            thread::spawn(move || {
+                for task in receiver.iter() {
+                    task.run();
+                }
+            });
+        }
+    }
+    pub fn spawn<F, R>(&self, future: F) -> JoinHandle<R>
+    where
+        F: Future<Output = R> + Send + 'static,
+        R: Send + 'static,
+    {
+        let future = AssertUnwindSafe(future).catch_unwind();
+
+        let queue = self.queue.clone();
+        let (task, handle) = async_task::spawn(future, move |t| queue.send(t).unwrap(), ());
+
+        task.schedule();
+
+        JoinHandle(handle)
+    }
+}
