@@ -81,7 +81,7 @@ impl Spawner {
         let spawner = self.clone();
         let (task, handle) = async_task::spawn_local(future, move |t| spawner.queue(t), ());
 
-        task.schedule();
+        task.run();
 
         JoinHandle(handle)
     }
