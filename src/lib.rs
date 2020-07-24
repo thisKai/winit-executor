@@ -5,12 +5,130 @@ use {
     std::{
         cell::RefCell,
         future::Future,
+        ops::Deref,
         panic::{resume_unwind, AssertUnwindSafe},
         pin::Pin,
         task::{Context, Poll, Waker},
         thread,
     },
 };
+
+pub struct EventLoop<T: 'static> {
+    event_loop: winit::event_loop::EventLoop<RuntimeEvent<T>>,
+    event_sink: winit::event_loop::EventLoopProxy<RuntimeEvent<T>>,
+    runtime: Runtime,
+}
+impl EventLoop<()> {
+    pub fn new() -> Self {
+        Self::with_user_event()
+    }
+}
+impl<T> EventLoop<T> {
+    pub fn with_user_event() -> Self {
+        let event_loop = winit::event_loop::EventLoop::with_user_event();
+        let event_sink = event_loop.create_proxy();
+        Self {
+            event_loop,
+            event_sink,
+            runtime: Runtime::new(),
+        }
+    }
+    pub fn run<F>(self, mut event_handler: F) -> !
+    where
+        F: 'static
+            + FnMut(
+                winit::event::Event<T>,
+                &EventLoopWindowTarget<T>,
+                &mut winit::event_loop::ControlFlow,
+            ),
+    {
+        use winit::event::Event;
+        let Self {
+            event_loop,
+            event_sink,
+            runtime,
+        } = self;
+        event_loop.run({
+            move |event, target, control_flow| match event {
+                Event::UserEvent(RuntimeEvent::Spawn(task)) => {
+                    task.run();
+                }
+                Event::UserEvent(RuntimeEvent::UserEvent(event)) => event_handler(
+                    Event::UserEvent(event),
+                    &runtime.target(target),
+                    control_flow,
+                ),
+                event => {
+                    if let Event::RedrawEventsCleared = event {
+                        for task in runtime.poll_task() {
+                            let _ = event_sink.send_event(RuntimeEvent::Spawn(task));
+                        }
+                    }
+                    event_handler(
+                        event.map_nonuser_event().unwrap_or_else(|_| unreachable!()),
+                        &runtime.target(target),
+                        control_flow,
+                    )
+                }
+            }
+        })
+    }
+}
+impl<T> Deref for EventLoop<T> {
+    type Target = winit::event_loop::EventLoopWindowTarget<RuntimeEvent<T>>;
+    fn deref(&self) -> &Self::Target {
+        &*self.event_loop
+    }
+}
+
+#[derive(Debug)]
+pub enum RuntimeEvent<T: 'static> {
+    Spawn(Task),
+    UserEvent(T),
+}
+
+#[derive(Clone)]
+pub struct Spawner {
+    queue: channel::Sender<Task>,
+}
+impl Spawner {
+    fn queue(&self, task: Task) {
+        self.queue.send(task).unwrap();
+    }
+    pub fn spawn<F, R>(&self, future: F) -> JoinHandle<R>
+    where
+        F: Future<Output = R> + 'static,
+        R: 'static,
+    {
+        let future = AssertUnwindSafe(future).catch_unwind();
+
+        let spawner = self.clone();
+        let (task, handle) = async_task::spawn_local(future, move |t| spawner.queue(t), ());
+
+        task.schedule();
+
+        JoinHandle(handle)
+    }
+}
+pub struct EventLoopWindowTarget<'a, T: 'static> {
+    target: &'a winit::event_loop::EventLoopWindowTarget<RuntimeEvent<T>>,
+    spawner: Spawner,
+}
+impl<T: Send + Sync> EventLoopWindowTarget<'_, T> {
+    pub fn spawn<F, R>(&self, future: F) -> JoinHandle<R>
+    where
+        F: Future<Output = R> + 'static,
+        R: 'static,
+    {
+        self.spawner.spawn(future)
+    }
+}
+impl<T> Deref for EventLoopWindowTarget<'_, T> {
+    type Target = winit::event_loop::EventLoopWindowTarget<RuntimeEvent<T>>;
+    fn deref(&self) -> &Self::Target {
+        &self.target
+    }
+}
 
 pub fn block_on<F: Future>(future: F) -> F::Output {
     futures::pin_mut!(future);
@@ -70,7 +188,7 @@ static RUNTIME: Lazy<Runtime> = Lazy::new(|| {
 });
 
 pub struct Runtime {
-    queue: channel::Sender<Task>,
+    spawner: Spawner,
     stream: channel::Receiver<Task>,
 }
 impl Runtime {
@@ -78,7 +196,7 @@ impl Runtime {
         let (sender, receiver) = channel::unbounded::<Task>();
 
         Runtime {
-            queue: sender,
+            spawner: Spawner { queue: sender },
             stream: receiver,
         }
     }
@@ -97,13 +215,24 @@ impl Runtime {
         F: Future<Output = R> + Send + 'static,
         R: Send + 'static,
     {
-        let future = AssertUnwindSafe(future).catch_unwind();
-
-        let queue = self.queue.clone();
-        let (task, handle) = async_task::spawn(future, move |t| queue.send(t).unwrap(), ());
-
-        task.schedule();
-
-        JoinHandle(handle)
+        self.spawner.spawn(future)
+    }
+    pub fn spawner(&self) -> Spawner {
+        self.spawner.clone()
+    }
+    fn target<'a, T>(
+        &self,
+        target: &'a winit::event_loop::EventLoopWindowTarget<RuntimeEvent<T>>,
+    ) -> EventLoopWindowTarget<'a, T> {
+        EventLoopWindowTarget {
+            target,
+            spawner: self.spawner.clone(),
+        }
+    }
+    fn iter(&self) -> impl Iterator<Item = Task> + '_ {
+        self.stream.iter()
+    }
+    fn poll_task(&self) -> Option<Task> {
+        self.stream.try_recv().ok()
     }
 }

@@ -12,6 +12,7 @@ async-task = "3.0"
 futures = "0.3"
 once_cell = "1.4"
 num_cpus = "1.13"
+winit = "0.22"
 
 [dev-dependencies]
 futures-timer = "3.0"
