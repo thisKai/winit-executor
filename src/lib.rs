@@ -1,9 +1,11 @@
 use {
     crossbeam::{channel, sync::Parker},
+    futures::FutureExt,
     once_cell::sync::Lazy,
     std::{
         cell::RefCell,
         future::Future,
+        panic::{resume_unwind, AssertUnwindSafe},
         pin::Pin,
         task::{Context, Poll, Waker},
         thread,
@@ -34,14 +36,19 @@ pub fn block_on<F: Future>(future: F) -> F::Output {
     })
 }
 
-pub struct JoinHandle<R>(async_task::JoinHandle<R, ()>);
+pub struct JoinHandle<R>(async_task::JoinHandle<thread::Result<R>, ()>);
 impl<R> Future for JoinHandle<R> {
-    type Output = R;
+    type Output = Option<R>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match Pin::new(&mut self.0).poll(cx) {
             Poll::Pending => Poll::Pending,
-            Poll::Ready(output) => Poll::Ready(output.expect("task failed")),
+            // Cancelled
+            Poll::Ready(None) => Poll::Ready(None),
+            // Succeeded
+            Poll::Ready(Some(Ok(val))) => Poll::Ready(Some(val)),
+            // Caught panic
+            Poll::Ready(Some(Err(err))) => resume_unwind(err),
         }
     }
 }
@@ -51,6 +58,8 @@ where
     F: Future<Output = R> + Send + 'static,
     R: Send + 'static,
 {
+    let future = AssertUnwindSafe(future).catch_unwind();
+
     let (task, handle) = async_task::spawn(future, |t| QUEUE.send(t).unwrap(), ());
 
     task.schedule();
