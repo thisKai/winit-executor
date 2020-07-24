@@ -14,8 +14,7 @@ use {
 };
 
 pub struct EventLoop<T: 'static> {
-    event_loop: winit::event_loop::EventLoop<RuntimeEvent<T>>,
-    event_sink: winit::event_loop::EventLoopProxy<RuntimeEvent<T>>,
+    event_loop: winit::event_loop::EventLoop<T>,
     runtime: Runtime,
 }
 impl EventLoop<()> {
@@ -26,10 +25,8 @@ impl EventLoop<()> {
 impl<T> EventLoop<T> {
     pub fn with_user_event() -> Self {
         let event_loop = winit::event_loop::EventLoop::with_user_event();
-        let event_sink = event_loop.create_proxy();
         Self {
             event_loop,
-            event_sink,
             runtime: Runtime::new(),
         }
     }
@@ -45,46 +42,25 @@ impl<T> EventLoop<T> {
         use winit::event::Event;
         let Self {
             event_loop,
-            event_sink,
             runtime,
         } = self;
         event_loop.run({
-            move |event, target, control_flow| match event {
-                Event::UserEvent(RuntimeEvent::Spawn(task)) => {
-                    task.run();
-                }
-                Event::UserEvent(RuntimeEvent::UserEvent(event)) => event_handler(
-                    Event::UserEvent(event),
-                    &runtime.target(target),
-                    control_flow,
-                ),
-                event => {
-                    if let Event::RedrawEventsCleared = event {
-                        for task in runtime.poll_task() {
-                            let _ = event_sink.send_event(RuntimeEvent::Spawn(task));
-                        }
+            move |event, target, control_flow| {
+                if let Event::RedrawEventsCleared = event {
+                    for task in runtime.poll_task() {
+                        task.run();
                     }
-                    event_handler(
-                        event.map_nonuser_event().unwrap_or_else(|_| unreachable!()),
-                        &runtime.target(target),
-                        control_flow,
-                    )
                 }
+                event_handler(event, &runtime.target(target), control_flow)
             }
         })
     }
 }
 impl<T> Deref for EventLoop<T> {
-    type Target = winit::event_loop::EventLoopWindowTarget<RuntimeEvent<T>>;
+    type Target = winit::event_loop::EventLoopWindowTarget<T>;
     fn deref(&self) -> &Self::Target {
         &*self.event_loop
     }
-}
-
-#[derive(Debug)]
-pub enum RuntimeEvent<T: 'static> {
-    Spawn(Task),
-    UserEvent(T),
 }
 
 #[derive(Clone)]
@@ -111,7 +87,7 @@ impl Spawner {
     }
 }
 pub struct EventLoopWindowTarget<'a, T: 'static> {
-    target: &'a winit::event_loop::EventLoopWindowTarget<RuntimeEvent<T>>,
+    target: &'a winit::event_loop::EventLoopWindowTarget<T>,
     spawner: Spawner,
 }
 impl<T: Send + Sync> EventLoopWindowTarget<'_, T> {
@@ -124,7 +100,7 @@ impl<T: Send + Sync> EventLoopWindowTarget<'_, T> {
     }
 }
 impl<T> Deref for EventLoopWindowTarget<'_, T> {
-    type Target = winit::event_loop::EventLoopWindowTarget<RuntimeEvent<T>>;
+    type Target = winit::event_loop::EventLoopWindowTarget<T>;
     fn deref(&self) -> &Self::Target {
         &self.target
     }
@@ -222,7 +198,7 @@ impl Runtime {
     }
     fn target<'a, T>(
         &self,
-        target: &'a winit::event_loop::EventLoopWindowTarget<RuntimeEvent<T>>,
+        target: &'a winit::event_loop::EventLoopWindowTarget<T>,
     ) -> EventLoopWindowTarget<'a, T> {
         EventLoopWindowTarget {
             target,
