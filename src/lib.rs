@@ -37,6 +37,13 @@ impl<T> EventLoop<T> {
     {
         self.spawner().spawn(future)
     }
+    pub fn spawn_now<F, R>(&self, future: F) -> JoinHandle<R>
+    where
+        F: Future<Output = R> + 'static,
+        R: 'static,
+    {
+        self.spawner().spawn(future)
+    }
     pub fn spawner(&self) -> &Spawner {
         &self.runtime.spawner
     }
@@ -84,7 +91,7 @@ impl Spawner {
     fn queue(&self, task: Task) {
         self.queue.send(task).unwrap();
     }
-    pub fn spawn<F, R>(&self, future: F) -> JoinHandle<R>
+    fn spawn_pieces<F, R>(&self, future: F) -> (Task, JoinHandle<R>)
     where
         F: Future<Output = R> + 'static,
         R: 'static,
@@ -94,9 +101,24 @@ impl Spawner {
         let spawner = self.clone();
         let (task, handle) = async_task::spawn_local(future, move |t| spawner.queue(t), ());
 
+        (task, JoinHandle(handle))
+    }
+    pub fn spawn<F, R>(&self, future: F) -> JoinHandle<R>
+    where
+        F: Future<Output = R> + 'static,
+        R: 'static,
+    {
+        let (task, handle) = self.spawn_pieces(future);
+        handle
+    }
+    pub fn spawn_now<F, R>(&self, future: F) -> JoinHandle<R>
+    where
+        F: Future<Output = R> + 'static,
+        R: 'static,
+    {
+        let (task, handle) = self.spawn_pieces(future);
         task.run();
-
-        JoinHandle(handle)
+        handle
     }
 }
 pub struct EventLoopWindowTarget<'a, T: 'static> {
@@ -110,6 +132,13 @@ impl<T> EventLoopWindowTarget<'_, T> {
         R: 'static,
     {
         self.spawner.spawn(future)
+    }
+    pub fn spawn_now<F, R>(&self, future: F) -> JoinHandle<R>
+    where
+        F: Future<Output = R> + 'static,
+        R: 'static,
+    {
+        self.spawner.spawn_now(future)
     }
     pub fn spawner(&self) -> &Spawner {
         &self.spawner
