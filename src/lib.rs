@@ -109,6 +109,7 @@ impl Spawner {
         R: 'static,
     {
         let (task, handle) = self.spawn_pieces(future);
+        self.queue(task);
         handle
     }
     pub fn spawn_now<F, R>(&self, future: F) -> JoinHandle<R>
