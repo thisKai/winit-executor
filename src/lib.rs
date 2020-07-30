@@ -93,7 +93,7 @@ pub struct EventLoopWindowTarget<'a, T: 'static> {
     target: &'a winit::event_loop::EventLoopWindowTarget<T>,
     spawner: Spawner,
 }
-impl<T: Send + Sync> EventLoopWindowTarget<'_, T> {
+impl<T> EventLoopWindowTarget<'_, T> {
     pub fn spawn<F, R>(&self, future: F) -> JoinHandle<R>
     where
         F: Future<Output = R> + 'static,
