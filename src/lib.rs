@@ -30,6 +30,9 @@ impl<T> EventLoop<T> {
             runtime: Runtime::new(),
         }
     }
+    pub fn spawner(&self) -> &Spawner {
+        &self.runtime.spawner
+    }
     pub fn run<F>(self, mut event_handler: F) -> !
     where
         F: 'static
@@ -100,6 +103,9 @@ impl<T> EventLoopWindowTarget<'_, T> {
         R: 'static,
     {
         self.spawner.spawn(future)
+    }
+    pub fn spawner(&self) -> &Spawner {
+        &self.spawner
     }
 }
 impl<T> Deref for EventLoopWindowTarget<'_, T> {
