@@ -30,6 +30,13 @@ impl<T> EventLoop<T> {
             runtime: Runtime::new(),
         }
     }
+    pub fn spawn<F, R>(&self, future: F) -> JoinHandle<R>
+    where
+        F: Future<Output = R> + 'static,
+        R: 'static,
+    {
+        self.spawner().spawn(future)
+    }
     pub fn spawner(&self) -> &Spawner {
         &self.runtime.spawner
     }
