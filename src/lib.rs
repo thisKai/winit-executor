@@ -55,6 +55,9 @@ impl<T> EventLoop<T> {
             }
         })
     }
+    pub fn create_proxy(&self) -> winit::event_loop::EventLoopProxy<T> {
+        self.event_loop.create_proxy()
+    }
 }
 impl<T> Deref for EventLoop<T> {
     type Target = winit::event_loop::EventLoopWindowTarget<T>;
