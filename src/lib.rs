@@ -177,6 +177,11 @@ pub fn block_on<F: Future>(future: F) -> F::Output {
 }
 
 pub struct JoinHandle<R>(async_task::JoinHandle<thread::Result<R>, ()>);
+impl<R> JoinHandle<R> {
+    pub fn cancel(&self) {
+        self.0.cancel()
+    }
+}
 impl<R> Future for JoinHandle<R> {
     type Output = Option<R>;
 
