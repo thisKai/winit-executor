@@ -139,9 +139,10 @@ impl<T> EventLoopWindowTarget<'_, T> {
     pub fn spawner(&self) -> &Spawner {
         &self.runtime.spawner
     }
-    pub fn poll_tasks(&self) {
-        for task in self.runtime.poll_task() {
-            task.run();
+    pub fn poll_task(&self)-> bool {
+        match self.runtime.poll_task() {
+            Some(task) => task.run(),
+            None => false,
         }
     }
 }
