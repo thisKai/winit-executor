@@ -63,11 +63,6 @@ impl<T> EventLoop<T> {
         } = self;
         event_loop.run({
             move |event, target, control_flow| {
-                if let Event::RedrawEventsCleared = event {
-                    for task in runtime.poll_task() {
-                        task.run();
-                    }
-                }
                 event_handler(event, &runtime.target(target), control_flow)
             }
         })
@@ -124,7 +119,7 @@ impl Spawner {
 }
 pub struct EventLoopWindowTarget<'a, T: 'static> {
     target: &'a winit::event_loop::EventLoopWindowTarget<T>,
-    spawner: Spawner,
+    runtime: &'a Runtime,
 }
 impl<T> EventLoopWindowTarget<'_, T> {
     pub fn spawn<F, R>(&self, future: F) -> JoinHandle<R>
@@ -132,17 +127,22 @@ impl<T> EventLoopWindowTarget<'_, T> {
         F: Future<Output = R> + 'static,
         R: 'static,
     {
-        self.spawner.spawn(future)
+        self.runtime.spawn(future)
     }
     pub fn spawn_now<F, R>(&self, future: F) -> JoinHandle<R>
     where
         F: Future<Output = R> + 'static,
         R: 'static,
     {
-        self.spawner.spawn_now(future)
+        self.runtime.spawner.spawn_now(future)
     }
     pub fn spawner(&self) -> &Spawner {
-        &self.spawner
+        &self.runtime.spawner
+    }
+    pub fn poll_tasks(&self) {
+        for task in self.runtime.poll_task() {
+            task.run();
+        }
     }
 }
 impl<T> Deref for EventLoopWindowTarget<'_, T> {
@@ -239,8 +239,8 @@ impl Runtime {
     }
     pub fn spawn<F, R>(&self, future: F) -> JoinHandle<R>
     where
-        F: Future<Output = R> + Send + 'static,
-        R: Send + 'static,
+        F: Future<Output = R> + 'static,
+        R: 'static,
     {
         self.spawner.spawn(future)
     }
@@ -248,12 +248,12 @@ impl Runtime {
         self.spawner.clone()
     }
     fn target<'a, T>(
-        &self,
+        &'a self,
         target: &'a winit::event_loop::EventLoopWindowTarget<T>,
     ) -> EventLoopWindowTarget<'a, T> {
         EventLoopWindowTarget {
             target,
-            spawner: self.spawner.clone(),
+            runtime: self,
         }
     }
     fn iter(&self) -> impl Iterator<Item = Task> + '_ {

@@ -16,6 +16,9 @@ pub fn main() {
         .build(&event_loop)
         .unwrap();
     event_loop.run(|event, target, control_flow| match event {
+        Event::RedrawEventsCleared => {
+            target.poll_tasks();
+        }
         Event::WindowEvent {
             event: WindowEvent::CloseRequested,
             ..
