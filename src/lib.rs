@@ -257,10 +257,10 @@ impl Runtime {
             runtime: self,
         }
     }
-    fn iter(&self) -> impl Iterator<Item = Task> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = Task> + '_ {
         self.stream.iter()
     }
-    fn poll_task(&self) -> Option<Task> {
+    pub fn poll_task(&self) -> Option<Task> {
         self.stream.try_recv().ok()
     }
 }
