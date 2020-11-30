@@ -84,7 +84,9 @@ pub struct Spawner {
 }
 impl Spawner {
     fn queue(&self, task: Task) {
-        self.queue.send(task).unwrap();
+        if let Err(_) = self.queue.send(task) {
+            eprintln!("Tried to spawn task on dead runtime");
+        }
     }
     fn spawn_pieces<F, R>(&self, future: F) -> (Task, JoinHandle<R>)
     where
